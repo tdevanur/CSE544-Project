@@ -337,17 +337,17 @@ def milestone_report():
     conn = connect(param_dic)
     for method in ['bernoulli', 'correlated']:
         print(method + ' sampling with p='+ str(sampling_probability) + ' for ' + str(number_of_samples) + ' samples')
-        # sampler(table_names, attribute_indices, number_of_samples, method, sampling_probability)
+        sampler(table_names, attribute_indices, number_of_samples, method, sampling_probability)
         copy_samples(conn, table_names, number_of_samples)
-        # outputs_dic[method] = join(conn, output_dir, table_names, attributes, number_of_samples, sampling_probability, method)
-        # for probability in [0.0001, 0.0003, 0.0005, 0.001, 0.01, 0.03]:
-        #     print(method + ' sampling with p=' + str(probability))
-        #     sampler(table_names, attribute_indices, number_of_samples, method, probability)
-        #     end = time.time()
-        #     print('sampling took ' + str(end - start) + ' sec')
-        #     copy_samples(conn, table_names, number_of_samples)
-        #     outputs_dic[method][probability] = join(conn, output_dir, table_names, attributes, number_of_samples,
-        #                                             probability, method)
+        outputs_dic[method] = join(conn, output_dir, table_names, attributes, number_of_samples, sampling_probability, method)
+        for probability in [0.0001, 0.0003, 0.0005, 0.001, 0.01, 0.03]:
+            print(method + ' sampling with p=' + str(probability))
+            sampler(table_names, attribute_indices, number_of_samples, method, probability)
+            end = time.time()
+            print('sampling took ' + str(end - start) + ' sec')
+            copy_samples(conn, table_names, number_of_samples)
+            outputs_dic[method][probability] = join(conn, output_dir, table_names, attributes, number_of_samples,
+                                                    probability, method)
     return outputs_dic
 
-outputs_dic = milestone_report()
+# outputs_dic = milestone_report()
