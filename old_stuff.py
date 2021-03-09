@@ -281,3 +281,31 @@ def clear_tables(table_names, number_of_files):
                 cursor.execute(drop_query, {'table': AsIs(name)})
                 conn.commit()
     return 1
+
+
+"""
+    explain_query = "EXPLAIN (FORMAT JSON, ANALYZE) SELECT * FROM "
+    for i in range(len(table_names) - 1):
+        if testing_mode == 1:
+            explain_query += 'small' + str(int(small_table_probability)) + '_' + table_names[i] + " t" + str(
+                i) + ", "
+        elif testing_mode == 0:
+            explain_query += table_names[i] + " t" + str(i) + ", "
+    if testing_mode == 1:
+        explain_query += 'small' + str(int(small_table_probability)) + '_' + table_names[
+            len(table_names) - 1] + " t" + str(len(table_names) - 1) + " WHERE "
+    elif testing_mode == 0:
+        explain_query += table_names[len(table_names) - 1] + " t" + str(len(table_names) - 1) + " WHERE "
+    for i in range(len(table_names) - 2):
+        explain_query += "t" + str(i) + "." + attributes[i] + " = " + "t" + str(i + 1) + "." + \
+                         attributes[i + 1] + " and "
+    explain_query += "t" + str(len(table_names) - 2) + "." + attributes[len(table_names) - 2] + " = " + \
+                     "t" + str(len(table_names) - 1) + "." + attributes[len(table_names) - 1]
+    
+    # if you need to run the explain query, e.g. if it's a completely new query
+    if no_explanation == 1:
+        cursor.execute(explain_query)
+        explanation = ((((cursor.fetchall())[0])[0])[0]['Plan'])
+        plan_rows = explanation['Plan Rows']
+        actual_rows = explanation['Actual Rows']
+"""
