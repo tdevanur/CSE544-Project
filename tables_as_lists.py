@@ -1,4 +1,4 @@
-from numpy import random
+from numpy import random, prod
 from math import floor, sqrt
 import csv
 import time
@@ -20,24 +20,24 @@ table_names: tables involved in the join
 attribute_names: join attributes for the corresponding tables
 attribute_indices: column indices of join attributes, needed to hash values for correlated sampling
 sampling_method: bernoulli or correlated
-sampling_probability: (0,1)
+sampling_probabilities: (0,1)^N where N is the number of tables
 number_of_samples
 """
 # table_names = ['title', 'cast_info']
 # attributes = ['id', 'movie_id']
 # attribute_indices = [0, 2]
 # sampling_method = 'correlated'
-# sampling_probability = .001
+# sampling_probabilities = [.001,.001]
 # number_of_samples = 5
 
-table_names = ['title', 'movie_keyword', 'cast_info']
-attributes = ['id', 'movie_id', 'movie_id']
-number_of_samples = 2
+table_names = ['title', 'movie_companies', 'movie_info', 'movie_link']
+attributes = ['id', 'movie_id', 'movie_id', 'movie_id']
+number_of_samples = 200
 attribute_indices = [0, 1, 2]
 sampling_method = 'correlated'
-sampling_probability = .001
+sampling_probabilities = [0.01, 0.01, 0.001]
 plan_rows = 102405662
-actual_rows = 358045425
+actual_rows = 8995183711
 
 """
 Following is used for testing
@@ -100,7 +100,7 @@ to destination, using the given method and sampling probability.
 """
 
 
-def sampler(table_names, attribute_indices, number_of_samples, this_method, this_probability):
+def sampler(table_names, attribute_indices, number_of_samples, this_method, P):
     hash_parameters = []
     source_files = []
     target_files = [[] for j in range(number_of_samples)]
@@ -127,6 +127,7 @@ def sampler(table_names, attribute_indices, number_of_samples, this_method, this
         table = open(source_files[i], 'r')
         table_reader = csv.reader(table)
         temp_counter = 0
+        this_probability = P[i]
 
         for row in table_reader:
             temp_counter += 1
@@ -140,17 +141,7 @@ def sampler(table_names, attribute_indices, number_of_samples, this_method, this
                     hash_value = uniform_hash(a, b, temp_counter)
                 elif this_method == 'correlated':
                     join_value = row[attribute_index]
-                    # FIX - when attribute values are strings
-                    #
-                    # if join_value in join_values_dics[j]:
-                    #
-                    #     join_value_key = join_values_dics[j][join_value]
-                    # else:
-                    #     join_value_key = key_counters[j]
-                    #     join_values_dics[j][join_value] = join_value_key
-                    #     key_counters[j] += 1
                     join_value_key = int(join_value)
-
                     hash_value = uniform_hash(a, b, join_value_key)
                 else:
                     hash_value = 1
@@ -228,16 +219,19 @@ def copy_samples(conn, table_names, number_of_files):
 
 
 """
-Executes the join query for each set of samples, as well as an explain query
-to obtain the true join size and Postgres' estimate. Writes the result in json
-format to output_dir.
+Executes the join query for each set of samples, 
+and writes the result in json format to output_dir.
 """
 
 
-def join(conn, output_dir, table_names, attributes, number_of_samples, p, method, no_explanation):
-    sampling_probability = p
+def join(conn, output_dir, table_names, attributes, number_of_samples, P, method):
+    sampling_probabilities = P
     sampling_method = method
-
+    if sampling_method == 'correlated':
+        multiplier = min(sampling_probabilities)
+    else:
+        multiplier = prod(sampling_probabilities)
+    print(multiplier)
     cursor = conn.cursor()
     outputs = []
 
@@ -264,10 +258,7 @@ def join(conn, output_dir, table_names, attributes, number_of_samples, p, method
                 name = table_names[k] + str(j + 1)
                 cursor.execute(drop_query, {'table': AsIs(name)})
                 conn.commit()
-            if sampling_method == 'bernoulli':
-                outputs.append(round(output / sampling_probability ** len(table_names)))
-            elif sampling_method == 'correlated':
-                outputs.append(round(output / sampling_probability))
+            outputs.append(round(output / multiplier))
         except:
             print("error in execution of query")
             print(j)
@@ -286,31 +277,25 @@ def join(conn, output_dir, table_names, attributes, number_of_samples, p, method
         sum += (outputs[i] - average) ** 2
 
     # FIX - for correct variance formula
-    variance = sum / (number_of_samples)
-    if testing_mode == 1:
-        filename = output_dir + '/result ' + sampling_method + ' p=' + str(
-            round(sampling_probability * small_table_probability, 5))
-    elif testing_mode == 0:
-        filename = output_dir + '/result ' + sampling_method + str(number_of_samples) + ' p=' + str(
-            round(sampling_probability, 5))
+    variance = sum / number_of_samples
+
+    filename = output_dir + '/result ' + sampling_method + str(number_of_samples) + ' p=' + str(
+        round(multiplier, 9))
 
     error = sqrt(variance) / actual_rows
     output_dic = {'method': str(sampling_method), 'table_names': str(table_names), 'attributes': str(attributes),
-                  'sampling_probability': str(round(sampling_probability, 5)),
+                  'sampling_probabilities': sampling_probabilities,
                   'number_of_samples': str(number_of_samples),
                   'estimates': str(outputs), 'average': str(average), 'variance': variance, 'error': error,
                   'plan_rows': plan_rows,
                   'actual_rows': actual_rows}
     if testing_mode == 1:
-        output_dic['sampling_probability'] = str(round(sampling_probability * small_table_probability, 5))
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
+        output_dic['small_table_probability'] = small_table_probability
+    os.makedirs(os.path.dirname(filename) , exist_ok=True)
     with open(filename, "w") as outfile:
         json.dump(output_dic, outfile, indent=4)
         print("wrote the results to file")
-    return output_dic['error']
-
-
-
+    return output_dic
 
 
 """
@@ -324,24 +309,27 @@ def milestone_report():
     outputs_dic = {'bernoulli': {}, 'correlated': {}}
     errors_dic = {'bernoulli': [], 'correlated': []}
     conn = connect(param_dic)
-    for method in ['bernoulli', 'correlated']:
-        # print(method + ' sampling with p='+ str(sampling_probability) + ' for ' + str(number_of_samples) + ' samples')
-        # sampler(table_names, attribute_indices, number_of_samples, method, sampling_probability)
-        # copy_samples(conn, table_names, number_of_samples)
-        # outputs_dic[method] = join(conn, output_dir, table_names, attributes, number_of_samples, sampling_probability, method)
+    for method in ['bernoulli','correlated']:
+        # sampling_probabilities[2] = 0.001
+        # print(method + ' sampling with P='+ str(sampling_probabilities) + ' for ' + str(500) + ' samples')
+        # sampler(table_names, attribute_indices, 500, method, sampling_probabilities)
+        # copy_samples(conn, table_names, 500)
+        # outputs_dic[method] = join(conn, output_dir, table_names, attributes, 500, sampling_probabilities, method)['estimates']
         for probability in [0.0001, 0.0003, 0.0005, 0.001, 0.005, 0.01]:
             print(method + ' sampling with p=' + str(probability))
-            sampler(table_names, attribute_indices, number_of_samples, method, probability)
+            sampling_probabilities[2] = probability
+            print(sampling_probabilities)
+            sampler(table_names, attribute_indices, number_of_samples, method, sampling_probabilities)
             end = time.time()
             print('sampling took ' + str(end - start) + ' sec')
             copy_samples(conn, table_names, number_of_samples)
             errors_dic[method].append(join(conn, output_dir, table_names, attributes, number_of_samples,
-                                           probability, method, 0))
-    return errors_dic
+                                           sampling_probabilities, method)['error'])
+    return errors_dic, outputs_dic
 
 
-outputs_dic = milestone_report()
+errors_dic, outputs_dic = milestone_report()
 # conn = connect(param_dic)
-# sampler(table_names, attribute_indices, number_of_samples, 'correlated', sampling_probability)
+# sampler(table_names, attribute_indices, number_of_samples, 'correlated', sampling_probabilities)
 # copy_samples(conn, table_names, number_of_samples)
-# outputs_dic[method] = join(conn, output_dir, table_names, attributes, number_of_samples, sampling_probability, 'correlated')
+# outputs_dic[method] = join(conn, output_dir, table_names, attributes, number_of_samples, sampling_probabilities, 'correlated')
