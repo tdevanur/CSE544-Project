@@ -29,30 +29,148 @@ number_of_samples
 # sampling_method = 'correlated'
 # sampling_probabilities = [.001,.001]
 # number_of_samples = 5
+# planned_rows = 1
+# actual_rows = 358045425
+#
+# table_names = ['title', 'movie_keyword', 'cast_info']
+# attributes = ['id', 'movie_id', 'movie_id']
+# number_of_samples = 200
+# attribute_indices = [0, 1, 2]
+# planned_rows = 1
+# actual_rows = 358045425
+# sampling_probabilities = [0.01, 0.01, 0.001]
 
-table_names = ['title', 'movie_companies', 'movie_info', 'movie_link']
-attributes = ['id', 'movie_id', 'movie_id', 'movie_id']
-number_of_samples = 200
-attribute_indices = [0, 1, 2]
+
+"""
+new stuff
+"""
+
+freq_files_dir = '/home/tejas/Desktop/dbms/Project/tables/freq/'
+nohh_dir = '/home/tejas/Desktop/dbms/Project/tables/nohh/'
+
+# set no_hh mode to 1 if you want to work with nohh tables
+nohh_mode = 1
+
+if nohh_mode == 1:
+    # where nohh tables are located, after exporting them from postgres
+    original_tables_dir = nohh_dir
+    output_dir = '/home/tejas/Desktop/dbms/Project/results/hh'
+    # directory where samples will be written
+    destination = '/home/tejas/Desktop/dbms/Project/samples/'
+else:
+    # directory where results will be written
+    output_dir = '/home/tejas/Desktop/dbms/Project/results/Bernoulli'
+
+    # directory where samples will be written
+    destination = '/home/tejas/Desktop/dbms/Project/samples/'
+    original_tables_dir = '/home/tejas/Desktop/dbms/Project/tables/'
+
+# query 1
+
+table_names = ['title_nohh', 'movie_keyword_nohh']
+attributes = ['id', 'movie_id']
+attribute_indices = [0, 1]
 sampling_method = 'correlated'
-sampling_probabilities = [0.01, 0.01, 0.001]
-plan_rows = 102405662
-actual_rows = 8995183711
+sampling_probabilities = [.01, .01]
+number_of_samples = 5
+plan_rows = 7480087
+actual_rows = 7419916
+hh_counts = [0, 28]
+hh_contribution = 16429
+
+# query 2
+# table_names = ['title', 'movie_keyword', 'cast_info']
+# attributes = ['id', 'movie_id', 'movie_id']
+# number_of_samples = 200
+# attribute_indices = [0, 1, 2]
+# plan_rows = 102405662
+# actual_rows = 358045425
+# sampling_method = 'bernoulli'
+# sampling_probabilities = [0.01, 0.01, 0.001]
+# hh_counts = [0, 28, 71]
+# hh_contribution = 1924071
+
+# query 3
+# table_names = ['title', 'movie_companies', 'movie_info', 'movie_link']
+# attributes = ['id', 'movie_id', 'movie_id', 'movie_id']
+# number_of_samples = 50
+# attribute_indices = [0, 1, 2]
+# sampling_method = 'correlated'
+# sampling_probabilities = [0.01, 0.01, 0.001]
+# plan_rows = 102405662
+# actual_rows = 8995183711
+# hh_counts = [0,7,18,107]
+# hh_contribution = 191392753
+
+"""
+when running this function, table names should not have nohh in them. when sampling nohh tables
+using hh_report, they should have
+nohh in their name, e.g. query 1 above
+
+This function computes the contribution of heavy hitters to a particular join, uses the hh_counts list 
+corresponding to that join. hh_counts is the list of number of heavy hitters for each table which was 
+used to create the nohh tables on Postgres (i.e. if nohh_count = 5 for some table, then the 
+corresponding create table query has "limit 5;" in it)
+
+Take the output and set hh_contribution=output as a parameter along with the rest of
+the join data, see query 1 above
+"""
+
+
+def hh_contrib(table_names):
+    contribution = 0
+    values_considered = {}
+    for table_number in range(len(table_names)):
+        if hh_counts[table_number] == 0:
+            continue
+        freq_file = open(freq_files_dir + table_names[table_number] + '_freq.csv', 'r')
+        freq_file_reader = csv.reader(freq_file)
+        # this counter is used to stop reading the file when enough heavy hitters are considered
+        counter = 0
+        for row in freq_file_reader:
+
+            if counter == hh_counts[table_number]:
+                break
+            this_value = row[0]
+            this_freq = row[1]
+            if this_value in values_considered:
+                values_considered[this_value][table_number] = int(this_freq)
+            else:
+                new_freq_list = [1 for i in range(len(table_names))]
+                new_freq_list[table_number] = int(this_freq)
+
+                values_considered[this_value] = new_freq_list
+            counter += 1
+    for i in values_considered:
+        contribution_of_value = prod(values_considered[i])
+        contribution += contribution_of_value
+    print(contribution)
+    return contribution
+
+
+def hh_report():
+    conn = connect(param_dic)
+    print('correlated' + ' sampling on ' + str(table_names) + ' with P=' + str(sampling_probabilities) + ' for ' + str(500) + ' samples')
+    sampler(table_names, attribute_indices, 500, 'correlated', sampling_probabilities)
+    copy_samples(conn, table_names, 500)
+    join(conn, output_dir, table_names, attributes, 500, sampling_probabilities, 'correlated')
+
+
 
 """
 Following is used for testing
 FIX - remove instances of testing_mode when finished
 """
 
-testing_mode = 0
-small_table_probability = 2
-
-if testing_mode == 1:
-    original_tables_dir = '/home/tejas/Desktop/dbms/Project/smalltables/' + str(
-        int(small_table_probability)) + '/'
-
-elif testing_mode == 0:
-    original_tables_dir = '/home/tejas/Desktop/dbms/Project/tables/'
+# testing_mode = 0
+# small_table_probability = 2
+#
+# if testing_mode == 1:
+#     original_tables_dir = '/home/tejas/Desktop/dbms/Project/smalltables/' + str(
+#         int(small_table_probability)) + '/'
+#
+# elif testing_mode == 0:
+#
 
 """
 To test validity of parameters
@@ -62,13 +180,7 @@ if len(table_names) != len(attributes):
 
 if len(table_names) <= 1:
     print('you need at least two tables!')
-    exit()
-
-# directory where results will be written
-output_dir = '/home/tejas/Desktop/dbms/Project/results/Bernoulli'
-
-# directory where samples will be written
-destination = '/home/tejas/Desktop/dbms/Project/samples/'
+    # exit()
 
 # needed to connect to postgres
 param_dic = {
@@ -199,9 +311,11 @@ def copy_samples(conn, table_names, number_of_files):
                 name = os.path.basename(file).split('.')[0]
                 cursor.execute(drop_query, {'table': AsIs(name)})
                 conn.commit()
+                if nohh_mode == 1:
+                    base_name = os.path.basename(file).split('_nohh')[0]
                 cursor.execute(query,
                                {'new_table': AsIs(name),
-                                'base_table': AsIs(''.join(i for i in name if not i.isdigit()))})
+                                'base_table': AsIs(base_name)})
                 conn.commit()
                 sqlstr = "COPY " + name + " FROM STDIN DELIMITER ',' CSV"
                 with open(table_dir + '/' + name + '.csv', 'r') as fin:
@@ -254,11 +368,15 @@ def join(conn, output_dir, table_names, attributes, number_of_samples, P, method
         try:
             cursor.execute(join_query_test, {"index": j + 1})
             output = (cursor.fetchall()[0])[0]
+            scaled_output = round(output / multiplier)
             for k in range(len(table_names)):
                 name = table_names[k] + str(j + 1)
                 cursor.execute(drop_query, {'table': AsIs(name)})
                 conn.commit()
-            outputs.append(round(output / multiplier))
+            if nohh_mode == 1:
+                output_after_hh = scaled_output + hh_contribution
+            outputs.append(output_after_hh)
+
         except:
             print("error in execution of query")
             print(j)
@@ -279,19 +397,20 @@ def join(conn, output_dir, table_names, attributes, number_of_samples, P, method
     # FIX - for correct variance formula
     variance = sum / number_of_samples
 
-    filename = output_dir + '/result ' + sampling_method + str(number_of_samples) + ' p=' + str(
+    filename = output_dir + '/result ' + sampling_method + str(number_of_samples) + ' ' + str(
+        table_names) + ' p=' + str(
         round(multiplier, 9))
 
     error = sqrt(variance) / actual_rows
     output_dic = {'method': str(sampling_method), 'table_names': str(table_names), 'attributes': str(attributes),
                   'sampling_probabilities': sampling_probabilities,
                   'number_of_samples': str(number_of_samples),
-                  'estimates': str(outputs), 'average': str(average), 'variance': variance, 'error': error,
+                  'estimates': str(outputs), 'hh_contrib': hh_contribution, 'average': str(average),
+                  'variance': variance, 'error': error,
                   'plan_rows': plan_rows,
                   'actual_rows': actual_rows}
-    if testing_mode == 1:
-        output_dic['small_table_probability'] = small_table_probability
-    os.makedirs(os.path.dirname(filename) , exist_ok=True)
+
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
     with open(filename, "w") as outfile:
         json.dump(output_dic, outfile, indent=4)
         print("wrote the results to file")
@@ -304,31 +423,41 @@ as well as relative error line graphs by varying sampling probability.
 """
 
 
+
+
+
+
 def milestone_report():
     start = time.time()
     outputs_dic = {'bernoulli': {}, 'correlated': {}}
     errors_dic = {'bernoulli': [], 'correlated': []}
     conn = connect(param_dic)
-    for method in ['bernoulli','correlated']:
-        # sampling_probabilities[2] = 0.001
-        # print(method + ' sampling with P='+ str(sampling_probabilities) + ' for ' + str(500) + ' samples')
-        # sampler(table_names, attribute_indices, 500, method, sampling_probabilities)
-        # copy_samples(conn, table_names, 500)
-        # outputs_dic[method] = join(conn, output_dir, table_names, attributes, 500, sampling_probabilities, method)['estimates']
-        for probability in [0.0001, 0.0003, 0.0005, 0.001, 0.005, 0.01]:
-            print(method + ' sampling with p=' + str(probability))
-            sampling_probabilities[2] = probability
-            print(sampling_probabilities)
-            sampler(table_names, attribute_indices, number_of_samples, method, sampling_probabilities)
-            end = time.time()
-            print('sampling took ' + str(end - start) + ' sec')
-            copy_samples(conn, table_names, number_of_samples)
-            errors_dic[method].append(join(conn, output_dir, table_names, attributes, number_of_samples,
-                                           sampling_probabilities, method)['error'])
+    for method in ['correlated']:
+        sampling_probabilities[1] = 0.001
+        print(method + ' sampling with P=' + str(sampling_probabilities) + ' for ' + str(5) + ' samples')
+        sampler(table_names, attribute_indices, 5, method, sampling_probabilities)
+        copy_samples(conn, table_names, 5)
+        outputs_dic[method] = join(conn, output_dir, table_names, attributes, 5, sampling_probabilities, method)[
+            'estimates']
+
+        # for probability in [0.0001, 0.0003, 0.0005, 0.001, 0.005, 0.01]:
+        #     print(method + ' sampling with p=' + str(probability))
+        #     sampling_probabilities[2] = probability
+        #     print(sampling_probabilities)
+        #     # sampler(table_names, attribute_indices, number_of_samples, method, sampling_probabilities)
+        #     end = time.time()
+        #     print('sampling took ' + str(end - start) + ' sec')
+        #     copy_samples(conn, table_names, number_of_samples)
+        #     errors_dic[method].append(join(conn, output_dir, table_names, attributes, number_of_samples,
+        #                                    sampling_probabilities, method)['error'])
     return errors_dic, outputs_dic
 
-
-errors_dic, outputs_dic = milestone_report()
+# sampler(table_names, attribute_indices, 5, 'correlated', sampling_probabilities)
+#
+# conn = connect(param_dic)
+# copy_samples(conn,table_names,5)
+# join(conn, output_dir, table_names, attributes, 5, sampling_probabilities, 'correlated')
+# errors_dic, outputs_dic = milestone_report()
 # conn = connect(param_dic)
 # sampler(table_names, attribute_indices, number_of_samples, 'correlated', sampling_probabilities)
 # copy_samples(conn, table_names, number_of_samples)
